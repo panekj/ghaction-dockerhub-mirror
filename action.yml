@@ -26,12 +26,19 @@ inputs:
     description: 'Dry run'
     required: false
     default: 'false'
+  max-tags:
+    description: 'Maximum tag count to retrieve'
+    required: false
+    default: '10000'
+  regex-match:
+    description: 'Regex for which tags must match'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
   steps:
-    -
-      run: |
+    - run: |
         set -e
 
         DOCKERHUB_USERNAME=${{ inputs.dockerhub-username }}
@@ -73,12 +80,15 @@ runs:
           exit 1
         fi
 
-        TAG_LIST=$(curl -s -H "Authorization: Bearer ${TOKEN}" "https://hub.docker.com/v2/repositories/${DOCKERHUB_REPO}/tags/?page_size=10000" | jq -rc '.results | reverse | .[] | @base64')
+        TAG_LIST=$(curl -s -H "Authorization: Bearer ${TOKEN}" "https://hub.docker.com/v2/repositories/${DOCKERHUB_REPO}/tags/?page_size=${{ inputs.max-tags }}" | jq -rc '.results | reverse | .[] | @base64')
         for TAG in $TAG_LIST; do
           _jq() {
             echo "${TAG}" | base64 --decode | jq -r ${1}
           }
           TAG_NAME=$(_jq '.name')
+          if [ "${{ inputs.regex-match }}" != "" ]; then
+            echo "${TAG_NAME}" | grep -q -v -E -e '${{ inputs.regex-match }}' && continue
+          fi
           TAG_IMAGES=$(echo "$(_jq '.images')" | jq -r '.[] | @base64')
           TAG_PLATFORMS=$(get_platforms "${TAG_IMAGES}")
           echo "::group::Copying ${DOCKERHUB_REPO}:${TAG_NAME} to ${DOCKER_DEST_REGISTRY}/${DOCKER_DEST_REPO}"
